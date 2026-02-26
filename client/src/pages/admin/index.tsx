@@ -772,8 +772,21 @@ function TeamManagement() {
 
 function ApplicationDetails({ sub, onUpdateStatus, isAdmin = true }: { sub: Submission; onUpdateStatus: (id: string, status: string) => void; isAdmin?: boolean }) {
   const [open, setOpen] = useState(false);
+  const [fullSub, setFullSub] = useState<Submission | null>(null);
+  const [docsLoading, setDocsLoading] = useState(false);
+
+  useEffect(() => {
+    if (open && !fullSub) {
+      setDocsLoading(true);
+      fetch(`/api/submissions/${sub.id}`)
+        .then(r => r.json())
+        .then(data => { setFullSub(data); setDocsLoading(false); })
+        .catch(() => setDocsLoading(false));
+    }
+  }, [open, sub.id, fullSub]);
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setFullSub(null); }}>
       <DialogTrigger asChild>
         <Button variant="ghost" size="icon" className="hover:bg-primary/10 hover:text-primary">
           <Eye className="h-4 w-4" />
@@ -815,35 +828,6 @@ function ApplicationDetails({ sub, onUpdateStatus, isAdmin = true }: { sub: Subm
                 </div>
               </section>
 
-              <section>
-                <h4 className="text-sm font-bold text-primary uppercase tracking-widest mb-4 flex items-center gap-2">
-                   Documents Provided
-                </h4>
-                <div className="grid grid-cols-1 gap-3">
-                  {[
-                    { label: "Passport Photo", data: sub.passportPhoto },
-                    { label: "Government ID", data: sub.govtId },
-                    { label: "Proof of Address", data: sub.proofOfAddress },
-                  ].map((doc) => (
-                    <div key={doc.label} className="p-3 bg-white border rounded">
-                      <p className="text-[10px] text-gray-500 mb-2">{doc.label}</p>
-                      {doc.data ? (
-                        doc.data.startsWith("data:image") ? (
-                          <a href={doc.data} target="_blank" rel="noopener noreferrer">
-                            <img src={doc.data} alt={doc.label} className="max-h-32 rounded border object-contain w-full" />
-                          </a>
-                        ) : (
-                          <a href={doc.data} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 underline">
-                            View Document
-                          </a>
-                        )
-                      ) : (
-                        <Badge variant="outline" className="text-[10px]">Not uploaded</Badge>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </section>
             </div>
 
             {/* Column 2: Technical & Installation */}
@@ -877,6 +861,114 @@ function ApplicationDetails({ sub, onUpdateStatus, isAdmin = true }: { sub: Subm
               )}
             </div>
           </div>
+
+          <section className="mt-8">
+            <h4 className="text-sm font-bold text-primary uppercase tracking-widest mb-4 flex items-center gap-2">
+               Documents Provided
+            </h4>
+            {docsLoading ? (
+              <div className="text-center py-8 text-gray-500 text-sm">Loading documents...</div>
+            ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {[
+                { label: "Passport Photo", data: fullSub?.passportPhoto },
+                { label: "Government ID", data: fullSub?.govtId },
+                { label: "Proof of Address", data: fullSub?.proofOfAddress },
+              ].map((doc) => (
+                <div key={doc.label} className="p-3 bg-white border rounded">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-[10px] text-gray-500 font-semibold uppercase">{doc.label}</p>
+                    {doc.data && (
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          data-testid={`btn-view-${doc.label.toLowerCase().replace(/\s+/g, '-')}`}
+                          onClick={() => {
+                            const w = window.open("", "_blank");
+                            if (w) {
+                              if (doc.data!.startsWith("data:image")) {
+                                w.document.write(`<html><head><title>${doc.label}</title><style>body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#1a1a1a;}</style></head><body><img src="${doc.data}" style="max-width:100%;max-height:100vh;object-fit:contain;" /></body></html>`);
+                              } else if (doc.data!.startsWith("data:application/pdf")) {
+                                w.document.write(`<html><head><title>${doc.label}</title></head><body style="margin:0"><embed src="${doc.data}" type="application/pdf" width="100%" height="100%" style="position:absolute;top:0;left:0;right:0;bottom:0;" /></body></html>`);
+                              } else {
+                                w.document.write(`<html><head><title>${doc.label}</title></head><body><p>Document preview not available. Please download the file.</p></body></html>`);
+                              }
+                              w.document.close();
+                            }
+                          }}
+                        >
+                          <Eye className="h-3 w-3 mr-1" /> View
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          data-testid={`btn-download-${doc.label.toLowerCase().replace(/\s+/g, '-')}`}
+                          onClick={() => {
+                            const ext = doc.data!.startsWith("data:image/png") ? ".png"
+                              : doc.data!.startsWith("data:image/jpeg") ? ".jpg"
+                              : doc.data!.startsWith("data:application/pdf") ? ".pdf"
+                              : doc.data!.startsWith("data:image") ? ".png" : ".bin";
+                            const link = document.createElement("a");
+                            link.href = doc.data!;
+                            link.download = `${sub.firstName}_${sub.lastName}_${doc.label.replace(/\s+/g, '_')}${ext}`;
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                          }}
+                        >
+                          <Download className="h-3 w-3 mr-1" /> Save
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                  {doc.data ? (
+                    doc.data.startsWith("data:image") ? (
+                      <img
+                        src={doc.data}
+                        alt={doc.label}
+                        className="max-h-48 rounded border object-contain w-full cursor-pointer hover:opacity-90 transition-opacity bg-gray-100"
+                        data-testid={`img-${doc.label.toLowerCase().replace(/\s+/g, '-')}`}
+                        onClick={() => {
+                          const w = window.open("", "_blank");
+                          if (w) {
+                            w.document.write(`<html><head><title>${doc.label}</title><style>body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#1a1a1a;}</style></head><body><img src="${doc.data}" style="max-width:100%;max-height:100vh;object-fit:contain;" /></body></html>`);
+                            w.document.close();
+                          }
+                        }}
+                      />
+                    ) : doc.data.startsWith("data:application/pdf") ? (
+                      <div className="border rounded p-4 bg-gray-100 text-center">
+                        <p className="text-sm text-gray-700 mb-2">PDF Document</p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            const w = window.open("", "_blank");
+                            if (w) {
+                              w.document.write(`<html><head><title>${doc.label}</title></head><body style="margin:0"><embed src="${doc.data}" type="application/pdf" width="100%" height="100%" style="position:absolute;top:0;left:0;right:0;bottom:0;" /></body></html>`);
+                              w.document.close();
+                            }
+                          }}
+                        >
+                          <Eye className="h-3 w-3 mr-1" /> Open PDF
+                        </Button>
+                      </div>
+                    ) : (
+                      <a href={doc.data} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 underline">
+                        View Document
+                      </a>
+                    )
+                  ) : (
+                    <Badge variant="outline" className="text-[10px]">Not uploaded</Badge>
+                  )}
+                </div>
+              ))}
+            </div>
+            )}
+          </section>
         </ScrollArea>
         <div className="p-6 border-t bg-gray-50 flex justify-end gap-3">
           <Button variant="outline" onClick={() => setOpen(false)}>Close</Button>

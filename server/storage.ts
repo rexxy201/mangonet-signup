@@ -40,6 +40,29 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(submissions).orderBy(submissions.submittedAt);
   }
 
+  async getSubmissionsLite(): Promise<Omit<Submission, 'passportPhoto' | 'govtId' | 'proofOfAddress'>[]> {
+    return db.select({
+      id: submissions.id,
+      firstName: submissions.firstName,
+      lastName: submissions.lastName,
+      email: submissions.email,
+      phone: submissions.phone,
+      nin: submissions.nin,
+      address: submissions.address,
+      city: submissions.city,
+      state: submissions.state,
+      zipCode: submissions.zipCode,
+      plan: submissions.plan,
+      wifiSsid: submissions.wifiSsid,
+      wifiPassword: submissions.wifiPassword,
+      installationDate: submissions.installationDate,
+      notes: submissions.notes,
+      paymentRef: submissions.paymentRef,
+      status: submissions.status,
+      submittedAt: submissions.submittedAt,
+    }).from(submissions).orderBy(submissions.submittedAt);
+  }
+
   async getSubmission(id: string): Promise<Submission | undefined> {
     const [result] = await db.select().from(submissions).where(eq(submissions.id, id));
     return result;

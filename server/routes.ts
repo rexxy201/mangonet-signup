@@ -29,8 +29,20 @@ export async function registerRoutes(
 
   app.get("/api/submissions", async (_req, res) => {
     try {
-      const subs = await storage.getSubmissions();
+      const subs = await storage.getSubmissionsLite();
       res.json(subs);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/submissions/:id", async (req, res) => {
+    try {
+      const sub = await storage.getSubmission(req.params.id);
+      if (!sub) {
+        return res.status(404).json({ message: "Submission not found" });
+      }
+      res.json(sub);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
