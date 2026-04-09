@@ -10,7 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useSubmissions, useAdminAuth, usePaystackKey, usePaystackSecretKey, useLogo, useFavicon, useSeoImage, useInstallationCost, useSignupNote } from "@/lib/storage";
+import { useSubmissions, useAdminAuth, usePaystackKey, usePaystackSecretKey, useLogo, useFavicon, useSeoImage, useInstallationCost, useSignupNote, useNotificationEmails, useSmtpSettings } from "@/lib/storage";
 import { format } from "date-fns";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Submission } from "@/lib/storage";
@@ -22,8 +22,6 @@ import {
   Download,
   Eye,
   Wifi,
-  MapPin,
-  Key,
   LogOut,
   Save,
   Upload,
@@ -43,9 +41,7 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { useLocation } from "wouter";
 
 export default function Admin() {
@@ -207,7 +203,15 @@ export default function Admin() {
                           <StatusSelect submission={sub} onUpdate={updateStatus} isAdmin={isAdmin} />
                         </TableCell>
                         <TableCell className="text-right">
-                          <ApplicationDetails sub={sub} onUpdateStatus={updateStatus} isAdmin={isAdmin} />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="hover:bg-primary/10 hover:text-primary"
+                            data-testid={`btn-view-submission-${sub.id}`}
+                            onClick={() => setLocation(`/admin/submissions/${sub.id}`)}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -246,6 +250,12 @@ export default function Admin() {
               </div>
               <div className="border-t pt-4">
                 <KeySettings />
+              </div>
+              <div className="border-t pt-4">
+                <EmailNotificationSettings />
+              </div>
+              <div className="border-t pt-4">
+                <SmtpSettings />
               </div>
               <div className="border-t pt-4">
                 <TeamManagement />
@@ -646,6 +656,208 @@ function SignupNoteSettings() {
   );
 }
 
+function EmailNotificationSettings() {
+  const { emails, saveEmails, isSaving } = useNotificationEmails();
+  const [input, setInput] = useState(emails);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    setInput(emails);
+  }, [emails]);
+
+  const handleSave = () => {
+    saveEmails(input.trim());
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  return (
+    <div className="space-y-3">
+      <label className="text-sm font-medium leading-none">Email Notifications</label>
+      <p className="text-[10px] text-muted-foreground">
+        Enter the email address(es) that should receive a notification when a customer completes payment. Separate multiple addresses with commas.
+      </p>
+      <Input
+        type="text"
+        placeholder="e.g. support@example.com, admin@example.com"
+        value={input}
+        onChange={(e) => { setInput(e.target.value); setSaved(false); }}
+        data-testid="input-notification-emails"
+      />
+      <Button
+        size="sm"
+        className="w-full"
+        onClick={handleSave}
+        disabled={isSaving}
+        data-testid="button-save-notification-emails"
+      >
+        <Save className="mr-2 h-3.5 w-3.5" />
+        {saved ? "Saved!" : isSaving ? "Saving..." : "Save Email Recipients"}
+      </Button>
+    </div>
+  );
+}
+
+function SmtpSettings() {
+  const { host, port, user, password, from, secure, saveSettings, isSaving } = useSmtpSettings();
+
+  const [form, setForm] = useState({ host: "", port: "587", user: "", password: "", from: "", secure: "false" });
+  const [saved, setSaved] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  useEffect(() => {
+    setForm({ host, port: port || "587", user, password, from, secure: secure || "false" });
+  }, [host, port, user, password, from, secure]);
+
+  const set = (key: string, value: string) => {
+    setForm(f => ({ ...f, [key]: value }));
+    setSaved(false);
+    setTestResult(null);
+  };
+
+  const handleSave = () => {
+    saveSettings({
+      smtp_host: form.host.trim(),
+      smtp_port: form.port.trim(),
+      smtp_user: form.user.trim(),
+      smtp_password: form.password,
+      smtp_from: form.from.trim(),
+      smtp_secure: form.secure,
+    });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const handleTest = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch("/api/admin/test-smtp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          host: form.host.trim(),
+          port: parseInt(form.port) || 587,
+          user: form.user.trim(),
+          password: form.password,
+          from: form.from.trim(),
+          secure: form.secure === "true",
+        }),
+      });
+      const data = await res.json();
+      setTestResult(data);
+    } catch {
+      setTestResult({ success: false, message: "Network error" });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <label className="text-sm font-medium leading-none">SMTP Email Server</label>
+      <p className="text-[10px] text-muted-foreground">
+        Configure your outgoing mail server. Emails will be sent through this server when customers complete signup.
+      </p>
+
+      <div className="grid grid-cols-3 gap-2">
+        <div className="col-span-2 space-y-1">
+          <p className="text-[10px] text-muted-foreground font-medium">Host</p>
+          <Input
+            placeholder="smtp.gmail.com"
+            value={form.host}
+            onChange={e => set("host", e.target.value)}
+            data-testid="input-smtp-host"
+          />
+        </div>
+        <div className="space-y-1">
+          <p className="text-[10px] text-muted-foreground font-medium">Port</p>
+          <Input
+            placeholder="587"
+            value={form.port}
+            onChange={e => set("port", e.target.value)}
+            data-testid="input-smtp-port"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-1">
+        <p className="text-[10px] text-muted-foreground font-medium">Username / Email</p>
+        <Input
+          type="email"
+          placeholder="you@example.com"
+          value={form.user}
+          onChange={e => set("user", e.target.value)}
+          data-testid="input-smtp-user"
+        />
+      </div>
+
+      <div className="space-y-1">
+        <p className="text-[10px] text-muted-foreground font-medium">Password / App Password</p>
+        <Input
+          type="password"
+          placeholder="••••••••••••"
+          value={form.password}
+          onChange={e => set("password", e.target.value)}
+          data-testid="input-smtp-password"
+        />
+      </div>
+
+      <div className="space-y-1">
+        <p className="text-[10px] text-muted-foreground font-medium">From Address (optional)</p>
+        <Input
+          placeholder="MangoNet <noreply@example.com>"
+          value={form.from}
+          onChange={e => set("from", e.target.value)}
+          data-testid="input-smtp-from"
+        />
+      </div>
+
+      <div className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          id="smtp-secure"
+          checked={form.secure === "true"}
+          onChange={e => set("secure", e.target.checked ? "true" : "false")}
+          data-testid="checkbox-smtp-secure"
+          className="h-3.5 w-3.5"
+        />
+        <label htmlFor="smtp-secure" className="text-[11px] text-muted-foreground cursor-pointer select-none">
+          Use SSL/TLS (enable for port 465; leave off for 587 with STARTTLS)
+        </label>
+      </div>
+
+      {testResult && (
+        <div className={`rounded-md px-3 py-2 text-[11px] font-medium ${testResult.success ? "bg-green-50 border border-green-200 text-green-700" : "bg-red-50 border border-red-200 text-red-700"}`}>
+          {testResult.success ? "✓ " : "✗ "}{testResult.message}
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={handleTest}
+          disabled={testing || !form.host || !form.user || !form.password}
+          data-testid="button-test-smtp"
+        >
+          {testing ? "Testing..." : "Test Connection"}
+        </Button>
+        <Button
+          size="sm"
+          onClick={handleSave}
+          disabled={isSaving}
+          data-testid="button-save-smtp"
+        >
+          <Save className="mr-2 h-3.5 w-3.5" />
+          {saved ? "Saved!" : isSaving ? "Saving..." : "Save Settings"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function TeamManagement() {
   const [users, setUsers] = useState<{ id: string; username: string; role: string }[]>([]);
   const [newUsername, setNewUsername] = useState("");
@@ -767,217 +979,6 @@ function TeamManagement() {
         </Button>
       </div>
     </div>
-  );
-}
-
-function ApplicationDetails({ sub, onUpdateStatus, isAdmin = true }: { sub: Submission; onUpdateStatus: (id: string, status: string) => void; isAdmin?: boolean }) {
-  const [open, setOpen] = useState(false);
-  const [fullSub, setFullSub] = useState<Submission | null>(null);
-  const [docsLoading, setDocsLoading] = useState(false);
-
-  useEffect(() => {
-    if (open && !fullSub) {
-      setDocsLoading(true);
-      fetch(`/api/submissions/${sub.id}`)
-        .then(r => r.json())
-        .then(data => { setFullSub(data); setDocsLoading(false); })
-        .catch(() => setDocsLoading(false));
-    }
-  }, [open, sub.id, fullSub]);
-
-  return (
-    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setFullSub(null); }}>
-      <DialogTrigger asChild>
-        <Button variant="ghost" size="icon" className="hover:bg-primary/10 hover:text-primary">
-          <Eye className="h-4 w-4" />
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
-        <DialogHeader className="p-6 border-b">
-          <div className="flex items-center justify-between pr-8">
-            <div>
-              <DialogTitle className="text-2xl font-bold">Application Details</DialogTitle>
-              <DialogDescription>Full technical and personal profile for {sub.firstName} {sub.lastName}</DialogDescription>
-            </div>
-            <Badge className="capitalize px-3 py-1">{sub.status}</Badge>
-          </div>
-        </DialogHeader>
-        
-        <ScrollArea className="flex-1 p-6">
-          <div className="grid gap-8 md:grid-cols-2">
-            {/* Column 1: Personal & Location */}
-            <div className="space-y-6">
-              <section>
-                <h4 className="text-sm font-bold text-primary uppercase tracking-widest mb-4">Customer Info</h4>
-                <div className="space-y-3 bg-gray-50 p-4 rounded-lg">
-                  <DetailRow label="Phone" value={sub.phone} />
-                  <DetailRow label="NIN" value={sub.nin} />
-                  <DetailRow label="Email" value={sub.email} />
-                </div>
-              </section>
-
-              <section>
-                <h4 className="text-sm font-bold text-primary uppercase tracking-widest mb-4 flex items-center gap-2">
-                  <MapPin className="h-4 w-4" /> Installation Address
-                </h4>
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <p className="text-sm text-gray-900 font-medium leading-relaxed">
-                    {sub.address}<br />
-                    {sub.city}, {sub.state} {sub.zipCode}
-                  </p>
-                </div>
-              </section>
-
-            </div>
-
-            {/* Column 2: Technical & Installation */}
-            <div className="space-y-6">
-              <section>
-                <h4 className="text-sm font-bold text-primary uppercase tracking-widest mb-4">Technical Config</h4>
-                <div className="space-y-3 bg-gray-50 p-4 rounded-lg">
-                  <DetailRow label="Plan" value={sub.plan} />
-                  <DetailRow label="SSID" value={sub.wifiSsid} />
-                  <DetailRow label="WiFi Pass" value={sub.wifiPassword} />
-                </div>
-              </section>
-
-              <section>
-                <h4 className="text-sm font-bold text-primary uppercase tracking-widest mb-4">Installation Window</h4>
-                <div className="bg-orange-50 border border-orange-100 p-4 rounded-lg">
-                  <p className="text-sm text-orange-900 font-bold mb-1">Requested Date:</p>
-                  <p className="text-lg font-black text-primary">
-                    {format(new Date(sub.installationDate), "EEEE, MMMM do")}
-                  </p>
-                </div>
-              </section>
-
-              {sub.notes && (
-                <section>
-                  <h4 className="text-sm font-bold text-primary uppercase tracking-widest mb-4">Notes</h4>
-                  <div className="bg-blue-50 border border-blue-100 p-4 rounded-lg italic text-sm text-blue-900">
-                    "{sub.notes}"
-                  </div>
-                </section>
-              )}
-            </div>
-          </div>
-
-          <section className="mt-8">
-            <h4 className="text-sm font-bold text-primary uppercase tracking-widest mb-4 flex items-center gap-2">
-               Documents Provided
-            </h4>
-            {docsLoading ? (
-              <div className="text-center py-8 text-gray-500 text-sm">Loading documents...</div>
-            ) : (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {[
-                { label: "Passport Photo", data: fullSub?.passportPhoto },
-                { label: "Government ID", data: fullSub?.govtId },
-                { label: "Proof of Address", data: fullSub?.proofOfAddress },
-              ].map((doc) => (
-                <div key={doc.label} className="p-3 bg-white border rounded">
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-[10px] text-gray-500 font-semibold uppercase">{doc.label}</p>
-                    {doc.data && (
-                      <div className="flex gap-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-xs"
-                          data-testid={`btn-view-${doc.label.toLowerCase().replace(/\s+/g, '-')}`}
-                          onClick={() => {
-                            const w = window.open("", "_blank");
-                            if (w) {
-                              if (doc.data!.startsWith("data:image")) {
-                                w.document.write(`<html><head><title>${doc.label}</title><style>body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#1a1a1a;}</style></head><body><img src="${doc.data}" style="max-width:100%;max-height:100vh;object-fit:contain;" /></body></html>`);
-                              } else if (doc.data!.startsWith("data:application/pdf")) {
-                                w.document.write(`<html><head><title>${doc.label}</title></head><body style="margin:0"><embed src="${doc.data}" type="application/pdf" width="100%" height="100%" style="position:absolute;top:0;left:0;right:0;bottom:0;" /></body></html>`);
-                              } else {
-                                w.document.write(`<html><head><title>${doc.label}</title></head><body><p>Document preview not available. Please download the file.</p></body></html>`);
-                              }
-                              w.document.close();
-                            }
-                          }}
-                        >
-                          <Eye className="h-3 w-3 mr-1" /> View
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-xs"
-                          data-testid={`btn-download-${doc.label.toLowerCase().replace(/\s+/g, '-')}`}
-                          onClick={() => {
-                            const ext = doc.data!.startsWith("data:image/png") ? ".png"
-                              : doc.data!.startsWith("data:image/jpeg") ? ".jpg"
-                              : doc.data!.startsWith("data:application/pdf") ? ".pdf"
-                              : doc.data!.startsWith("data:image") ? ".png" : ".bin";
-                            const link = document.createElement("a");
-                            link.href = doc.data!;
-                            link.download = `${sub.firstName}_${sub.lastName}_${doc.label.replace(/\s+/g, '_')}${ext}`;
-                            document.body.appendChild(link);
-                            link.click();
-                            document.body.removeChild(link);
-                          }}
-                        >
-                          <Download className="h-3 w-3 mr-1" /> Save
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                  {doc.data ? (
-                    doc.data.startsWith("data:image") ? (
-                      <img
-                        src={doc.data}
-                        alt={doc.label}
-                        className="max-h-48 rounded border object-contain w-full cursor-pointer hover:opacity-90 transition-opacity bg-gray-100"
-                        data-testid={`img-${doc.label.toLowerCase().replace(/\s+/g, '-')}`}
-                        onClick={() => {
-                          const w = window.open("", "_blank");
-                          if (w) {
-                            w.document.write(`<html><head><title>${doc.label}</title><style>body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#1a1a1a;}</style></head><body><img src="${doc.data}" style="max-width:100%;max-height:100vh;object-fit:contain;" /></body></html>`);
-                            w.document.close();
-                          }
-                        }}
-                      />
-                    ) : doc.data.startsWith("data:application/pdf") ? (
-                      <div className="border rounded p-4 bg-gray-100 text-center">
-                        <p className="text-sm text-gray-700 mb-2">PDF Document</p>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            const w = window.open("", "_blank");
-                            if (w) {
-                              w.document.write(`<html><head><title>${doc.label}</title></head><body style="margin:0"><embed src="${doc.data}" type="application/pdf" width="100%" height="100%" style="position:absolute;top:0;left:0;right:0;bottom:0;" /></body></html>`);
-                              w.document.close();
-                            }
-                          }}
-                        >
-                          <Eye className="h-3 w-3 mr-1" /> Open PDF
-                        </Button>
-                      </div>
-                    ) : (
-                      <a href={doc.data} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 underline">
-                        View Document
-                      </a>
-                    )
-                  ) : (
-                    <Badge variant="outline" className="text-[10px]">Not uploaded</Badge>
-                  )}
-                </div>
-              ))}
-            </div>
-            )}
-          </section>
-        </ScrollArea>
-        <div className="p-6 border-t bg-gray-50 flex justify-end gap-3">
-          <Button variant="outline" onClick={() => setOpen(false)}>Close</Button>
-          {isAdmin && (
-            <Button onClick={() => { onUpdateStatus(sub.id, "approved"); setOpen(false); }}>Approve & Dispatch</Button>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
   );
 }
 

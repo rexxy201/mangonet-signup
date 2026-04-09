@@ -254,6 +254,66 @@ export function useInstallationCost() {
   return { cost, rawValue: data?.value || "100000", saveCost };
 }
 
+export function useSmtpSettings() {
+  const queryClient = useQueryClient();
+
+  const { data: hostData } = useQuery<{ value: string }>({ queryKey: ["/api/settings/smtp_host"] });
+  const { data: portData } = useQuery<{ value: string }>({ queryKey: ["/api/settings/smtp_port"] });
+  const { data: userData } = useQuery<{ value: string }>({ queryKey: ["/api/settings/smtp_user"] });
+  const { data: passwordData } = useQuery<{ value: string }>({ queryKey: ["/api/settings/smtp_password"] });
+  const { data: fromData } = useQuery<{ value: string }>({ queryKey: ["/api/settings/smtp_from"] });
+  const { data: secureData } = useQuery<{ value: string }>({ queryKey: ["/api/settings/smtp_secure"] });
+
+  const smtpKeys = ["smtp_host", "smtp_port", "smtp_user", "smtp_password", "smtp_from", "smtp_secure"];
+
+  const saveMutation = useMutation({
+    mutationFn: async (settings: Record<string, string>) => {
+      await Promise.all(
+        Object.entries(settings).map(([key, value]) =>
+          apiRequest("PUT", `/api/settings/${key}`, { value })
+        )
+      );
+    },
+    onSuccess: () => {
+      smtpKeys.forEach(key => queryClient.invalidateQueries({ queryKey: [`/api/settings/${key}`] }));
+    },
+  });
+
+  return {
+    host: hostData?.value || "",
+    port: portData?.value || "587",
+    user: userData?.value || "",
+    password: passwordData?.value || "",
+    from: fromData?.value || "",
+    secure: secureData?.value || "false",
+    saveSettings: (s: Record<string, string>) => saveMutation.mutate(s),
+    isSaving: saveMutation.isPending,
+  };
+}
+
+export function useNotificationEmails() {
+  const queryClient = useQueryClient();
+
+  const { data } = useQuery<{ value: string }>({
+    queryKey: ["/api/settings/notification_emails"],
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: async (value: string) => {
+      await apiRequest("PUT", "/api/settings/notification_emails", { value });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/notification_emails"] });
+    },
+  });
+
+  const saveEmails = (value: string) => {
+    saveMutation.mutate(value);
+  };
+
+  return { emails: data?.value || "", saveEmails, isSaving: saveMutation.isPending };
+}
+
 export function usePaystackKey() {
   const { data } = useQuery<{ value: string }>({
     queryKey: ["/api/settings/paystack_key"],

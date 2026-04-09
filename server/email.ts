@@ -1,13 +1,13 @@
-import Mailgun from "mailgun.js";
-import FormData from "form-data";
+import nodemailer from "nodemailer";
 
-const mailgun = new Mailgun(FormData);
-const mg = mailgun.client({
-  username: "api",
-  key: process.env.MAILGUN_API_KEY || "",
-});
-
-const DOMAIN = process.env.MAILGUN_DOMAIN || "";
+export interface SmtpConfig {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  from: string;
+  secure: boolean;
+}
 
 function escapeHtml(str: string): string {
   return str
@@ -18,24 +18,58 @@ function escapeHtml(str: string): string {
     .replace(/'/g, "&#039;");
 }
 
-export async function sendSubmissionEmail(submission: {
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  address: string;
-  city: string;
-  state: string;
-  zipCode?: string | null;
-  plan: string;
-  wifiSsid: string;
-  wifiPassword: string;
-  installationDate: string;
-  notes?: string | null;
-  paymentRef?: string | null;
-}) {
-  if (!DOMAIN || !process.env.MAILGUN_API_KEY) {
-    console.warn("Mailgun not configured, skipping email");
+function buildTransporter(config: SmtpConfig) {
+  return nodemailer.createTransport({
+    host: config.host,
+    port: config.port,
+    secure: config.secure,
+    auth: {
+      user: config.user,
+      pass: config.password,
+    },
+    tls: {
+      rejectUnauthorized: false,
+    },
+  });
+}
+
+export async function testSmtpConnection(config: SmtpConfig): Promise<{ success: boolean; message: string }> {
+  try {
+    const transporter = buildTransporter(config);
+    await transporter.verify();
+    return { success: true, message: "SMTP connection successful" };
+  } catch (error: any) {
+    return { success: false, message: error.message || "Connection failed" };
+  }
+}
+
+export async function sendSubmissionEmail(
+  submission: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone: string;
+    address: string;
+    city: string;
+    state: string;
+    zipCode?: string | null;
+    plan: string;
+    wifiSsid: string;
+    wifiPassword: string;
+    installationDate: string;
+    notes?: string | null;
+    paymentRef?: string | null;
+  },
+  recipientEmails: string[] = [],
+  smtpConfig: SmtpConfig | null = null
+) {
+  if (!smtpConfig || !smtpConfig.host || !smtpConfig.user || !smtpConfig.password) {
+    console.warn("SMTP not configured, skipping email");
+    return;
+  }
+  const toList = recipientEmails.filter(e => e && e.includes("@"));
+  if (toList.length === 0) {
+    console.warn("No valid recipient emails, skipping email");
     return;
   }
 
@@ -80,7 +114,7 @@ export async function sendSubmissionEmail(submission: {
           <tr><td style="padding: 8px 0; color: #6b7280; width: 140px;">Address</td><td style="padding: 8px 0;">${s.address}</td></tr>
           <tr><td style="padding: 8px 0; color: #6b7280;">City</td><td style="padding: 8px 0;">${s.city}</td></tr>
           <tr><td style="padding: 8px 0; color: #6b7280;">State</td><td style="padding: 8px 0;">${s.state}</td></tr>
-          ${s.zipCode ? `<tr><td style="padding: 8px 0; color: #6b7280;">Zip Code</td><td style="padding: 8px 0;">${s.zipCode}</td></tr>` : ''}
+          ${s.zipCode ? `<tr><td style="padding: 8px 0; color: #6b7280;">Zip Code</td><td style="padding: 8px 0;">${s.zipCode}</td></tr>` : ""}
         </table>
 
         <h2 style="color: #1f2937; font-size: 18px;">Plan & WiFi</h2>
@@ -93,12 +127,12 @@ export async function sendSubmissionEmail(submission: {
         <h2 style="color: #1f2937; font-size: 18px;">Installation</h2>
         <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
           <tr><td style="padding: 8px 0; color: #6b7280; width: 140px;">Preferred Date</td><td style="padding: 8px 0; font-weight: bold;">${installDate}</td></tr>
-          ${s.paymentRef ? `<tr><td style="padding: 8px 0; color: #6b7280;">Payment Ref</td><td style="padding: 8px 0; font-family: monospace;">${s.paymentRef}</td></tr>` : ''}
-          ${s.notes ? `<tr><td style="padding: 8px 0; color: #6b7280;">Notes</td><td style="padding: 8px 0; font-style: italic;">${s.notes}</td></tr>` : ''}
+          ${s.paymentRef ? `<tr><td style="padding: 8px 0; color: #6b7280;">Payment Ref</td><td style="padding: 8px 0; font-family: monospace;">${s.paymentRef}</td></tr>` : ""}
+          ${s.notes ? `<tr><td style="padding: 8px 0; color: #6b7280;">Notes</td><td style="padding: 8px 0; font-style: italic;">${s.notes}</td></tr>` : ""}
         </table>
 
         <div style="background: #f0fdf4; border: 1px solid #bbf7d0; padding: 12px; border-radius: 6px; text-align: center;">
-          <p style="margin: 0; color: #166534; font-weight: bold;">Payment of ₦100,000 confirmed</p>
+          <p style="margin: 0; color: #166534; font-weight: bold;">Payment confirmed</p>
         </div>
       </div>
       <p style="text-align: center; color: #9ca3af; font-size: 12px; margin-top: 16px;">MangoNet Online — Automated Notification</p>
@@ -106,14 +140,16 @@ export async function sendSubmissionEmail(submission: {
   `;
 
   try {
-    await mg.messages.create(DOMAIN, {
-      from: `MangoNet Signup <noreply@${DOMAIN}>`,
-      to: ["support@mangonetonline.com"],
+    const transporter = buildTransporter(smtpConfig);
+    await transporter.sendMail({
+      from: smtpConfig.from || `MangoNet <${smtpConfig.user}>`,
+      to: toList.join(", "),
       subject: `New Signup: ${submission.firstName} ${submission.lastName} — ${submission.plan}`,
       html,
     });
-    console.log("Signup notification email sent successfully");
+    console.log("Signup notification email sent successfully to:", toList.join(", "));
   } catch (error) {
     console.error("Failed to send signup notification email:", error);
+    throw error;
   }
 }

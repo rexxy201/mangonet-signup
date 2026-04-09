@@ -3,7 +3,27 @@ import { createServer, type Server } from "http";
 import bcrypt from "bcrypt";
 import { storage } from "./storage";
 import { insertSubmissionSchema } from "@shared/schema";
-import { sendSubmissionEmail } from "./email";
+import { sendSubmissionEmail, testSmtpConnection, type SmtpConfig } from "./email";
+
+async function getSmtpConfig(): Promise<SmtpConfig | null> {
+  const [host, portStr, user, password, from, secureStr] = await Promise.all([
+    storage.getSetting("smtp_host"),
+    storage.getSetting("smtp_port"),
+    storage.getSetting("smtp_user"),
+    storage.getSetting("smtp_password"),
+    storage.getSetting("smtp_from"),
+    storage.getSetting("smtp_secure"),
+  ]);
+  if (!host || !user || !password) return null;
+  return {
+    host: host.trim(),
+    port: portStr ? parseInt(portStr) : 587,
+    user: user.trim(),
+    password,
+    from: from?.trim() || `MangoNet <${user.trim()}>`,
+    secure: secureStr === "true",
+  };
+}
 
 const SALT_ROUNDS = 10;
 const DEFAULT_PASSWORD = "MangoNet@2026";
@@ -141,7 +161,14 @@ export async function registerRoutes(
       if (!submission) {
         return res.status(404).json({ message: "Submission not found" });
       }
-      sendSubmissionEmail(submission).catch((err) =>
+      const [notifEmailSetting, smtpConfig] = await Promise.all([
+        storage.getSetting("notification_emails"),
+        getSmtpConfig(),
+      ]);
+      const recipientEmails = notifEmailSetting
+        ? notifEmailSetting.split(",").map(e => e.trim()).filter(Boolean)
+        : [];
+      sendSubmissionEmail(submission, recipientEmails, smtpConfig).catch((err) =>
         console.error("Email send failed:", err)
       );
       res.json(submission);
@@ -189,6 +216,27 @@ export async function registerRoutes(
       res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/test-smtp", async (req, res) => {
+    try {
+      const { host, port, user, password, from, secure } = req.body;
+      if (!host || !user || !password) {
+        return res.status(400).json({ success: false, message: "Host, user and password are required" });
+      }
+      const config: SmtpConfig = {
+        host: host.trim(),
+        port: port ? parseInt(port) : 587,
+        user: user.trim(),
+        password,
+        from: from?.trim() || `MangoNet <${user.trim()}>`,
+        secure: secure === true || secure === "true",
+      };
+      const result = await testSmtpConnection(config);
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
     }
   });
 

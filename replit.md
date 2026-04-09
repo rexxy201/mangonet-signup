@@ -63,7 +63,8 @@ Preferred communication style: Simple, everyday language.
 - **Paystack**: JavaScript SDK loaded via `<script>` tag in `index.html` (`https://js.paystack.co/v1/inline.js`). Used for processing customer payments during signup. Requires a Paystack public key (stored in settings table).
 
 ### Email Notifications
-- **Mailgun**: Used to send signup details to support@mangonetonline.com on successful submission. Configured via `MAILGUN_API_KEY` and `MAILGUN_DOMAIN` secrets. Uses `mailgun.js` + `form-data` packages. Email is sent asynchronously after submission is saved (non-blocking).
+- **Nodemailer / SMTP**: Used to send signup notifications to configurable recipients on successful payment. SMTP settings (host, port, user, password, from address, SSL toggle) are stored in the `settings` table and configured via the admin panel. Email is sent asynchronously after payment is confirmed (non-blocking). Includes a "Test Connection" button in admin settings to verify SMTP config before saving. Recipients are configured separately via the `notification_emails` setting.
+- **API**: `POST /api/admin/test-smtp` — verify SMTP credentials without saving.
 
 ### Database
 - **PostgreSQL**: Required. Connection string provided via `DATABASE_URL` environment variable. Uses `pg` (node-postgres) driver with `connect-pg-simple` for session storage capability.
