@@ -1,0 +1,34 @@
+Options -Indexes
+ServerSignature Off
+
+# Protect sensitive files
+<FilesMatch "\.(json|md|log|gitignore)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Allow access to config.php only from the server
+<Files "config.php">
+    Order allow,deny
+    Deny from all
+    Allow from 127.0.0.1
+</Files>
+
+RewriteEngine On
+
+# HTTPS redirect (enable on production)
+# RewriteCond %{HTTPS} off
+# RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+# Send PHP errors to error log, not browser (production safety)
+php_flag display_errors off
+php_flag log_errors on
+
+# Increase limits for file uploads
+php_value upload_max_filesize 10M
+php_value post_max_size 20M
+php_value memory_limit 128M
+php_value max_execution_time 60
+
+# Default index
+DirectoryIndex index.php
